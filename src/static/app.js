@@ -3,6 +3,29 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const loginButton = document.getElementById("login-button");
+  const logoutButton = document.getElementById("logout-button");
+  const loginDialog = document.getElementById("login-dialog");
+  const loginForm = document.getElementById("login-form");
+  const cancelLoginButton = document.getElementById("cancel-login");
+  const accessMessage = document.getElementById("access-message");
+  let accessToken = null;
+
+  try {
+    accessToken = sessionStorage.getItem("teacherToken");
+  } catch (error) {
+    console.warn("Browser session storage is unavailable.", error);
+  }
+
+  function updateAuthState() {
+    const isTeacher = Boolean(accessToken);
+    signupForm.classList.toggle("hidden", !isTeacher);
+    logoutButton.classList.toggle("hidden", !isTeacher);
+    loginButton.classList.toggle("hidden", isTeacher);
+    accessMessage.textContent = isTeacher
+      ? "You are signed in as a teacher and can manage registrations."
+      : "Teachers must log in to register or unregister students.";
+  }
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -30,7 +53,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 ${details.participants
                   .map(
                     (email) =>
-                      `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
+                      `<li><span class="participant-email">${email}</span>${
+                        accessToken
+                          ? `<button class="delete-btn" data-activity="${name}" data-email="${email}" aria-label="Unregister ${email}">Remove</button>`
+                          : ""
+                      }</li>`
                   )
                   .join("")}
               </ul>
@@ -80,6 +107,7 @@ document.addEventListener("DOMContentLoaded", () => {
         )}/unregister?email=${encodeURIComponent(email)}`,
         {
           method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
         }
       );
 
@@ -124,6 +152,7 @@ document.addEventListener("DOMContentLoaded", () => {
         )}/signup?email=${encodeURIComponent(email)}`,
         {
           method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
         }
       );
 
@@ -155,6 +184,57 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  loginButton.addEventListener("click", () => {
+    loginDialog.classList.remove("hidden");
+    document.getElementById("username").focus();
+  });
+  cancelLoginButton.addEventListener("click", () => {
+    loginDialog.classList.add("hidden");
+  });
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const response = await fetch("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: document.getElementById("username").value,
+        password: document.getElementById("password").value,
+      }),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      messageDiv.textContent = result.detail || "Login failed";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+      return;
+    }
+
+    accessToken = result.access_token;
+    try {
+      sessionStorage.setItem("teacherToken", accessToken);
+    } catch (error) {
+      console.warn("Could not persist teacher login for this session.", error);
+    }
+    loginForm.reset();
+    loginDialog.classList.add("hidden");
+    updateAuthState();
+    fetchActivities();
+  });
+
+  logoutButton.addEventListener("click", () => {
+    accessToken = null;
+    try {
+      sessionStorage.removeItem("teacherToken");
+    } catch (error) {
+      console.warn("Could not clear the stored teacher login.", error);
+    }
+    updateAuthState();
+    fetchActivities();
+  });
+
   // Initialize app
+  updateAuthState();
   fetchActivities();
 });
